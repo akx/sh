@@ -3616,58 +3616,12 @@ def run_repl(env):  # pragma: no cover
     print("")
 
 
-# this is a thin wrapper around THIS module (we patch sys.modules[__name__]).
-# this is in the case that the user does a "from sh import whatever"
-# in other words, they only want to import certain programs, not the whole
-# system PATH worth of commands.  in this case, we just proxy the
-# import lookup to our Environment class
-class SelfWrapper(ModuleType):
-    def __init__(self, self_module, baked_args=None):
-        # this is super ugly to have to copy attributes like this,
-        # but it seems to be the only way to make reload() behave
-        # nicely.  if i make these attributes dynamic lookups in
-        # __getattr__, reload sometimes chokes in weird ways...
-        super().__init__(
-            name=getattr(self_module, "__name__", None),
-            doc=getattr(self_module, "__doc__", None),
-        )
-        for attr in ["__builtins__", "__file__", "__package__"]:
-            setattr(self, attr, getattr(self_module, attr, None))
+__env = Environment(globals())
 
-        # python 3.2 (2.7 and 3.3 work fine) breaks on osx (not ubuntu)
-        # if we set this to None.  and 3.3 needs a value for __path__
-        self.__path__ = []
-        self.__self_module = self_module
 
-        # Copy the Command class and add any baked call kwargs to it
-        command_cls = Command
-        cls_attrs = command_cls.__dict__.copy()
-        cls_attrs.pop("__dict__", None)
-        if baked_args:
-            call_args, _ = command_cls._extract_call_args(baked_args)
-            cls_attrs["_call_args"] = cls_attrs["_call_args"].copy()
-            cls_attrs["_call_args"].update(call_args)
-        globs = globals().copy()
-        globs[command_cls.__name__] = type(
-            command_cls.__name__, command_cls.__bases__, cls_attrs
-        )
-
-        self.__env = Environment(globs, baked_args=baked_args)
-
-    def __getattr__(self, name):
-        return self.__env[name]
-
-    def bake(self, **kwargs):
-        baked_args = self.__env.baked_args.copy()
-        baked_args.update(kwargs)
-        new_sh = self.__class__(self.__self_module, baked_args)
-        return new_sh
+def __getattr__(name: str):
+    return __env[name]
 
 
 if __name__ == "__main__":  # pragma: no cover
-    # we're being run as a stand-alone script
-    env = Environment(globals())
-    run_repl(env)
-else:
-    # we're being imported from somewhere
-    sys.modules[__name__] = SelfWrapper(sys.modules[__name__])
+    run_repl(__env)
